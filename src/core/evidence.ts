@@ -34,11 +34,15 @@ async function sha256File(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+/** Files the operating system adds when someone browses a folder. They are not evidence. */
+const OS_METADATA = /^(\.DS_Store|\._.*|Thumbs\.db|desktop\.ini)$/;
+
 async function walk(root: string): Promise<string[]> {
   const out: string[] = [];
   async function visit(dir: string): Promise<void> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
+      if (OS_METADATA.test(entry.name)) continue;
       if (entry.isDirectory()) await visit(full);
       else if (entry.isFile()) out.push(full);
     }

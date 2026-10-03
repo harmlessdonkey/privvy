@@ -53,6 +53,19 @@ test("seal then verify passes; tampering, deletion and extra files are detected"
   assert.ok(report.problems.includes("unexpected file: extra.txt"));
 });
 
+test("OS metadata files such as .DS_Store are not evidence", async () => {
+  const data = await tmpData();
+  const runId = "20261003T073612Z-abcd01";
+  const dir = runDir(data, "c1", scope.id, runId);
+  const { evidenceDir } = await createRun(dir);
+  await writeFile(join(evidenceDir, "a.txt"), "x");
+  const manifest = await sealRun(dir, base(runId));
+  await writeFile(join(evidenceDir, ".DS_Store"), "finder");
+  await writeFile(join(evidenceDir, "._a.txt"), "appledouble");
+  assert.deepEqual(manifest.files.map((f) => f.path), ["a.txt"]);
+  assert.deepEqual(await verifyRun(dir), { ok: true, problems: [] });
+});
+
 test("listRuns finds sealed and unsealed runs, newest first", async () => {
   const data = await tmpData();
   const older = "20261002T000000Z-aaaaaa";

@@ -15,7 +15,7 @@ import type { Registry } from "../core/registry.js";
 import { listResults } from "../core/results.js";
 import type { Runner } from "../core/runner.js";
 import type { Manifest } from "../core/types.js";
-import { loginBody, overviewBody, pluginBody, runBody, type PluginView } from "./pages.js";
+import { loginBody, overviewBody, pluginBody, runBody, scopeBody, type HistoryRow, type PluginView } from "./pages.js";
 import { page, type Raw } from "./views.js";
 
 declare module "fastify" {
@@ -195,6 +195,49 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
       req.session.flash = `Could not start: ${(e as Error).message}`;
     }
     return reply.redirect("/", 303);
+  });
+
+  // ---- scope history ----
+  const SEVERITY = ["info", "low", "medium", "high"] as const;
+  app.get("/scopes/:checkId/:scopeId", async (req, reply) => {
+    const { checkId, scopeId } = req.params as { checkId: string; scopeId: string };
+    try {
+      assertSegment(checkId, "check id");
+      assertSegment(scopeId, "scope id");
+    } catch {
+      return reply.code(404).send("Scope not found");
+    }
+    const runs = await listRuns(d.dataDir, { checkId, scopeId });
+    const plugin = d.registry.list().find((p) => p.manifest.checks.some((c) => c.id === checkId));
+    const scopeCfg = plugin ? (await d.configs.get(plugin.manifest.id)).checks[checkId]?.scopes.find((s) => s.id === scopeId) : undefined;
+    if (!scopeCfg && runs.length === 0) return reply.code(404).send("Scope not found");
+    const rows: HistoryRow[] = [];
+    for (const run of runs) {
+      const m = run.manifest;
+      const results = await listResults(run.dir, { checkId, scopeId, runId: run.runId });
+      const valid = results.filter((r) => r.ok);
+      const newest = valid.at(-1);
+      let result: HistoryRow["result"] = null;
+      if (newest?.ok) {
+        const fm = newest.frontMatter;
+        const top = fm.items.reduce<number>((acc, i) => Math.max(acc, SEVERITY.indexOf(i.severity)), -1);
+        result = { outcome: fm.outcome, author: fm.author, items: fm.items.length, top: top >= 0 ? SEVERITY[top]! : null, summary: fm.summary };
+      }
+      rows.push({
+        runId: run.runId,
+        status: m?.status ?? "unfinished",
+        startedAt: m?.startedAt ?? run.runId,
+        durationSec: m ? Math.round((Date.parse(m.finishedAt) - Date.parse(m.startedAt)) / 1000) : null,
+        configRevision: m?.config.revision ?? null,
+        files: m?.files.length ?? 0,
+        result,
+        resultFiles: results.length,
+      });
+    }
+    const label = scopeCfg?.label ?? runs.find((r) => r.manifest)?.manifest?.scope.label ?? scopeId;
+    const rawUrl = scopeCfg?.params["url"];
+    const url = typeof rawUrl === "string" ? rawUrl : null;
+    return send(req, reply, label, (csrf) => scopeBody({ csrf, checkId, scopeId, label, url, running: d.runner.isRunning(checkId, scopeId), rows }));
   });
 
   // ---- run detail ----

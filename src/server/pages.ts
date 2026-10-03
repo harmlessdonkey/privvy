@@ -37,7 +37,7 @@ ${c.scopes.length === 0
   ? html`<p class="muted">No scopes configured. Add them under Configure.</p>`
   : html`<table><thead><tr><th>Scope</th><th>Last run</th><th>Latest result</th><th></th></tr></thead><tbody>
 ${c.scopes.map(
-  (s) => html`<tr><td>${s.label}<br><code class="muted">${s.scopeId}</code></td>
+  (s) => html`<tr><td><a href="/scopes/${s.checkId}/${s.scopeId}">${s.label}</a><br><code class="muted">${s.scopeId}</code></td>
 <td>${s.running ? html`<span class="muted">running…</span>` : s.lastRun ? html`<a href="/runs/${s.checkId}/${s.scopeId}/${s.lastRun.runId}">${s.lastRun.finishedAt.slice(0, 16).replace("T", " ")} UTC</a><br><span class="${s.lastRun.status === "complete" ? "ok" : "bad"}">${s.lastRun.status}</span>` : html`<span class="muted">never</span>`}</td>
 <td>${s.lastResult ? html`<span class="${tag(s.lastResult.outcome)}">${s.lastResult.outcome}</span> <span class="muted">(${s.lastResult.items} items, ${s.lastResult.author})</span><br>${s.lastResult.summary}` : html`<span class="muted">none yet</span>`}</td>
 <td><form method="post" action="/checks/${s.checkId}/run" class="inline"><input type="hidden" name="_csrf" value="${o.csrf}"><input type="hidden" name="scope" value="${s.scopeId}"><button ${s.running ? "disabled" : ""}>Run now</button></form></td></tr>`,
@@ -45,6 +45,40 @@ ${c.scopes.map(
 )}`,
 )}
 ${o.plugins.length === 0 ? html`<p class="muted">No plugins registered.</p>` : html``}`;
+}
+
+export interface HistoryRow {
+  runId: string;
+  status: string;
+  startedAt: string;
+  durationSec: number | null;
+  configRevision: number | null;
+  files: number;
+  /** Newest valid result for the run, if any. */
+  result: { outcome: string; author: string; items: number; top: string | null; summary: string } | null;
+  resultFiles: number;
+}
+
+export function scopeBody(o: {
+  csrf: string;
+  checkId: string;
+  scopeId: string;
+  label: string;
+  url: string | null;
+  running: boolean;
+  rows: HistoryRow[];
+}): Raw {
+  return html`<p><a href="/">← Overview</a></p><h1>${o.label}</h1>
+<p class="muted"><code>${o.checkId}</code> · <code>${o.scopeId}</code>${o.url ? html` · ${o.url}` : html``}</p>
+<form method="post" action="/checks/${o.checkId}/run" class="inline"><input type="hidden" name="_csrf" value="${o.csrf}"><input type="hidden" name="scope" value="${o.scopeId}"><button ${o.running ? "disabled" : ""}>Run now</button></form>
+<h2>History <span class="muted">${String(o.rows.length)} runs, newest first</span></h2>
+${o.rows.length === 0 ? html`<p class="muted">No runs yet for this scope.</p>` : html`<table><thead><tr><th>Run (UTC)</th><th>Status</th><th>Latest result</th><th>Evidence</th></tr></thead><tbody>
+${o.rows.map(
+  (r) => html`<tr><td><a href="/runs/${o.checkId}/${o.scopeId}/${r.runId}">${r.startedAt.slice(0, 16).replace("T", " ")}</a><br><code class="muted">${r.runId}</code></td>
+<td><span class="${r.status === "complete" ? "ok" : r.status === "unfinished" ? "muted" : "bad"}">${r.status}</span>${r.durationSec === null ? html`` : html`<br><span class="muted">${String(r.durationSec)}s · config rev ${String(r.configRevision ?? "?")}</span>`}</td>
+<td>${r.result ? html`<span class="${tag(r.result.outcome)}">${r.result.outcome}</span> <span class="muted">(${String(r.result.items)} items${r.result.top ? `, top ${r.result.top}` : ""}, ${r.result.author}${r.resultFiles > 1 ? `, ${r.resultFiles} result files` : ""})</span><br>${r.result.summary}` : html`<span class="muted">${r.resultFiles ? "result file invalid" : "no result yet"}</span>`}</td>
+<td>${String(r.files)} files</td></tr>`,
+)}</tbody></table>`}`;
 }
 
 export function pluginBody(o: {

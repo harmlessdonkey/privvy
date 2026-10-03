@@ -151,6 +151,17 @@ body
 `);
   const home2 = await b.req("GET", "/");
   assert.match(home2.body, /issues-proposed/);
+  assert.match(home2.body, /href="\/scopes\/tracking-vs-consent\/example\.com--uk"/);
+
+  const hist = await b.req("GET", "/scopes/tracking-vs-consent/example.com--uk");
+  assert.equal(hist.statusCode, 200);
+  assert.match(hist.body, /Example \(UK\)/);
+  assert.match(hist.body, new RegExp(`/runs/tracking-vs-consent/example\\.com--uk/${run.runId}`));
+  assert.match(hist.body, /issues-proposed/);
+  assert.match(hist.body, /top high/);
+  assert.ok(!hist.body.includes("<script>alert(1)</script>"));
+  assert.equal((await b.req("GET", "/scopes/tracking-vs-consent/nope")).statusCode, 404);
+  assert.equal((await b.req("GET", "/scopes/..%2f/x")).statusCode, 404);
 
   const detail = await b.req("GET", `/runs/tracking-vs-consent/example.com--uk/${run.runId}?verify=1`);
   assert.equal(detail.statusCode, 200);
