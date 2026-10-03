@@ -9,7 +9,7 @@ import { Runner } from "../src/core/runner.js";
 import { trackingVsConsent } from "../src/plugins/tracking-vs-consent/index.js";
 import { fakeCollector, tmpData } from "./helpers.js";
 
-async function setup(opts: { fail?: boolean } = {}) {
+async function setup(opts: { fail?: boolean; profile?: boolean } = {}) {
   const data = await tmpData();
   const script = await fakeCollector(data, opts);
   const configs = new ConfigStore(data);
@@ -68,4 +68,13 @@ test("plan refuses disabled plugins and unknown scopes", async () => {
   await assert.rejects(runner.plan("tracking-vs-consent", "nope"), /Unknown scope/);
   await configs.save(trackingVsConsent, { enabled: false });
   await assert.rejects(runner.plan("tracking-vs-consent"), /not enabled/);
+});
+
+test("the collector's scratch Chrome profile is removed and never becomes evidence", async () => {
+  const { data, runner } = await setup({ profile: true });
+  await runner.runCheck("tracking-vs-consent");
+  const m = (await listRuns(data))[0]!.manifest!;
+  assert.ok(m.files.some((f) => f.path === "pre-interaction/inspection.json"));
+  assert.ok(!m.files.some((f) => f.path.includes("browser-profile")));
+  assert.deepEqual(m.notes?.["removedScratch"], ["browser-profile"]);
 });

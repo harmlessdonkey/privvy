@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { CollectOutput, Plugin } from "../../core/types.js";
@@ -19,9 +19,14 @@ type Journey = (typeof JOURNEYS)[number];
  * STATUS: pre-interaction shells out to the EDPS Website Evidence Collector. Reject and accept need a
  * per-site banner recipe and are not implemented yet; the run records them as "not-implemented".
  *
- * The default collectorArgs below are a best guess. Confirm them with `website-evidence-collector --help`
- * on the machine or image that runs this, and change them in the dashboard if they differ.
+ * The default collectorArgs match the collector's own CLI (`collect <url> --output <dir>`, checked against
+ * `--help` for v4.5.0). Change them in the dashboard if your install differs.
+ *
+ * The collector leaves a scratch Chrome profile (`browser-profile/`, tens of MB of volatile files) in its
+ * output folder. It is not evidence and would make the hashes unstable, so it is removed after each journey.
  */
+const SCRATCH = ["browser-profile"];
+
 export const trackingVsConsent: Plugin = {
   manifest: {
     id: "cookies",
@@ -56,7 +61,7 @@ export const trackingVsConsent: Plugin = {
     enabled: false,
     settings: {
       collectorCommand: "website-evidence-collector",
-      collectorArgs: ["{url}", "--output", "{outDir}"],
+      collectorArgs: ["collect", "{url}", "--output", "{outDir}"],
       journeys: ["pre-interaction"],
       timeoutSeconds: 600,
     },
@@ -74,7 +79,7 @@ export const trackingVsConsent: Plugin = {
     if (!/^https?:\/\/[^\s]+$/i.test(url)) throw new Error(`Scope "${ctx.scope.id}" needs params.url to be an http(s) URL`);
 
     const command = String(ctx.settings["collectorCommand"] ?? "website-evidence-collector");
-    const argTemplate = (ctx.settings["collectorArgs"] as string[] | undefined) ?? ["{url}", "--output", "{outDir}"];
+    const argTemplate = (ctx.settings["collectorArgs"] as string[] | undefined) ?? ["collect", "{url}", "--output", "{outDir}"];
     const journeys = (ctx.settings["journeys"] as Journey[] | undefined) ?? ["pre-interaction"];
     const timeoutMs = Number(ctx.settings["timeoutSeconds"] ?? 600) * 1000;
 
@@ -96,18 +101,21 @@ export const trackingVsConsent: Plugin = {
       await mkdir(ctx.evidenceDir, { recursive: true });
 
       // execFile, not a shell: the URL can never be interpreted as shell syntax.
+      const cleanup = () => Promise.all(SCRATCH.map((name) => rm(join(outDir, name), { recursive: true, force: true })));
       const logPath = join(ctx.evidenceDir, `${journey}.collector.log`);
       try {
         const { stdout, stderr } = await run(command, args, { signal: ctx.signal, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 });
         await writeFile(logPath, `${stdout}${stderr ? `\n--- stderr ---\n${stderr}` : ""}`);
+        await cleanup();
         status[journey] = "collected";
       } catch (e) {
         const err = e as Error & { stdout?: string; stderr?: string };
         await writeFile(logPath, `${err.stdout ?? ""}\n--- stderr ---\n${err.stderr ?? err.message}`);
+        await cleanup();
         status[journey] = "failed";
         throw new Error(`collector failed for journey ${journey}: ${err.message.split("\n")[0]}`);
       }
     }
-    return { notes: { journeys: status, command, args: argTemplate, market: ctx.scope.params["market"] ?? null } };
+    return { notes: { journeys: status, removedScratch: SCRATCH, command, args: argTemplate, market: ctx.scope.params["market"] ?? null } };
   },
 };

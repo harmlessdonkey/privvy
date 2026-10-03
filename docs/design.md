@@ -89,7 +89,7 @@ The collect contract is deliberately plain (settings and scope in, files out) so
 
 One check, "Tracking technology vs consent choice", with the three journeys inside it, because the important findings ("reject was clicked but a tracker still fired") only appear when journeys are compared. Split a check when its evidence, schedule or owner differs.
 
-- `pre-interaction` runs the EDPS Website Evidence Collector as a separate, pinned process (`execFile`, never a shell).
+- `pre-interaction` runs the EDPS Website Evidence Collector as a separate, pinned process (`execFile`, never a shell). Its scratch Chrome profile (`browser-profile/`, tens of MB of volatile files) is deleted after each journey because it is not evidence and would make hashes unstable.
 - `reject` and `accept` need a per-site banner recipe (selectors for the buttons) and are **not implemented**. Runs record them as `not-implemented` rather than pretending.
 
 ## Configuration
@@ -125,5 +125,4 @@ Docker, one container for now. Compose publishes on `127.0.0.1` only. Chromium c
 
 ## Open questions
 
-- Confirm the collector's real CLI arguments with `--help` and update the plugin's default `collectorArgs`.
 - Bot protection on the target sites: allowlist the scanner rather than evade it.
