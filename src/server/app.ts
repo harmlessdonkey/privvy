@@ -8,12 +8,14 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { createReadStream } from "node:fs";
 import { join } from "node:path";
 import type { AuthProvider, AuthUser } from "../auth/provider.js";
+import { buildTables, DEFAULT_STALE_DAYS, evalMetrics, scopeState, topSeverity } from "../core/dashboard.js";
 import { ConfigError, type ConfigStore } from "../core/config.js";
 import { listRuns, runDir, verifyRun } from "../core/evidence.js";
 import { assertSegment, RUN_ID } from "../core/ids.js";
 import type { Registry } from "../core/registry.js";
 import { listResults } from "../core/results.js";
 import type { Runner } from "../core/runner.js";
+import type { ResultFrontMatter } from "../core/results.js";
 import type { Manifest } from "../core/types.js";
 import { loginBody, overviewBody, pluginBody, runBody, scopeBody, type HistoryRow, type PluginView } from "./pages.js";
 import { page, type Raw } from "./views.js";
@@ -69,9 +71,9 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
     if (f) req.session.flash = undefined;
     return f;
   };
-  const send = (req: FastifyRequest, reply: FastifyReply, title: string, body: (csrf: string) => Raw, status = 200) => {
+  const send = (req: FastifyRequest, reply: FastifyReply, title: string, body: (csrf: string) => Raw, status = 200, wide = false) => {
     const csrfToken = reply.generateCsrf();
-    return reply.code(status).type("text/html; charset=utf-8").send(page({ title, user: req.user, csrf: csrfToken, flash: flashOf(req), body: body(csrfToken) }));
+    return reply.code(status).type("text/html; charset=utf-8").send(page({ title, user: req.user, csrf: csrfToken, flash: flashOf(req), body: body(csrfToken), wide }));
   };
 
   app.get("/healthz", async () => "ok");
@@ -108,38 +110,43 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
     const latest = new Map<string, (typeof runs)[number]>();
     for (const r of runs) if (!latest.has(`${r.checkId}/${r.scopeId}`)) latest.set(`${r.checkId}/${r.scopeId}`, r);
 
+    const now = new Date();
     const plugins: PluginView[] = [];
     for (const plugin of d.registry.list()) {
       const config = await d.configs.get(plugin.manifest.id);
+      const dash = d.registry.dashboard(plugin.manifest.id);
       const checks = [];
       for (const def of plugin.manifest.checks) {
         const cc = config.checks[def.id];
-        const scopes = [];
+        const staleAfterDays = cc?.staleAfterDays ?? DEFAULT_STALE_DAYS;
+        const tiles = [];
         for (const scope of cc?.scopes ?? []) {
           const run = latest.get(`${def.id}/${scope.id}`);
-          let lastResult = null;
+          let fm: ResultFrontMatter | null = null;
           if (run?.manifest) {
             const results = await listResults(run.dir, { checkId: def.id, scopeId: scope.id, runId: run.runId });
             const newest = results.filter((r) => r.ok).at(-1);
-            if (newest?.ok) {
-              const fm = newest.frontMatter;
-              lastResult = { outcome: fm.outcome, summary: fm.summary, author: fm.author, items: fm.items.length };
-            }
+            if (newest?.ok) fm = newest.frontMatter;
           }
-          scopes.push({
+          const running = d.runner.isRunning(def.id, scope.id);
+          const state = scopeState({ running, run: run?.manifest ?? null, result: fm, now, staleAfterDays });
+          tiles.push({
             checkId: def.id,
             scopeId: scope.id,
             label: scope.label,
-            running: d.runner.isRunning(def.id, scope.id),
-            lastRun: run?.manifest ? { runId: run.runId, status: run.manifest.status, finishedAt: run.manifest.finishedAt } : null,
-            lastResult,
+            running,
+            state,
+            lastRun: run?.manifest ? { runId: run.runId, finishedAt: run.manifest.finishedAt } : null,
+            metrics: fm ? evalMetrics(dash.tile, fm.plugin) : [],
+            summary: fm?.summary ?? null,
           });
         }
-        checks.push({ id: def.id, name: def.name, description: def.description, enabled: cc?.enabled ?? false, scopes });
+        tiles.sort((x, y) => x.state.rank - y.state.rank || x.label.localeCompare(y.label));
+        checks.push({ id: def.id, name: def.name, description: def.description, enabled: cc?.enabled ?? false, staleAfterDays, tiles });
       }
       plugins.push({ id: plugin.manifest.id, name: plugin.manifest.name, description: plugin.manifest.description, enabled: config.enabled, revision: config.revision, checks });
     }
-    return send(req, reply, "Overview", (csrf) => overviewBody({ csrf, plugins }));
+    return send(req, reply, "Overview", (csrf) => overviewBody({ csrf, plugins }), 200, true);
   });
 
   // ---- plugin configuration ----
@@ -198,7 +205,6 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
   });
 
   // ---- scope history ----
-  const SEVERITY = ["info", "low", "medium", "high"] as const;
   app.get("/scopes/:checkId/:scopeId", async (req, reply) => {
     const { checkId, scopeId } = req.params as { checkId: string; scopeId: string };
     try {
@@ -211,6 +217,7 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
     const plugin = d.registry.list().find((p) => p.manifest.checks.some((c) => c.id === checkId));
     const scopeCfg = plugin ? (await d.configs.get(plugin.manifest.id)).checks[checkId]?.scopes.find((s) => s.id === scopeId) : undefined;
     if (!scopeCfg && runs.length === 0) return reply.code(404).send("Scope not found");
+    const dash = plugin ? d.registry.dashboard(plugin.manifest.id) : { tile: [], history: [], run: [] };
     const rows: HistoryRow[] = [];
     for (const run of runs) {
       const m = run.manifest;
@@ -220,8 +227,7 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
       let result: HistoryRow["result"] = null;
       if (newest?.ok) {
         const fm = newest.frontMatter;
-        const top = fm.items.reduce<number>((acc, i) => Math.max(acc, SEVERITY.indexOf(i.severity)), -1);
-        result = { outcome: fm.outcome, author: fm.author, items: fm.items.length, top: top >= 0 ? SEVERITY[top]! : null, summary: fm.summary };
+        result = { outcome: fm.outcome, author: fm.author, items: fm.items.length, top: topSeverity(fm.items), summary: fm.summary };
       }
       rows.push({
         runId: run.runId,
@@ -232,12 +238,13 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
         files: m?.files.length ?? 0,
         result,
         resultFiles: results.length,
+        metrics: newest?.ok ? evalMetrics(dash.history, newest.frontMatter.plugin) : [],
       });
     }
     const label = scopeCfg?.label ?? runs.find((r) => r.manifest)?.manifest?.scope.label ?? scopeId;
     const rawUrl = scopeCfg?.params["url"];
     const url = typeof rawUrl === "string" ? rawUrl : null;
-    return send(req, reply, label, (csrf) => scopeBody({ csrf, checkId, scopeId, label, url, running: d.runner.isRunning(checkId, scopeId), rows }));
+    return send(req, reply, label, (csrf) => scopeBody({ csrf, checkId, scopeId, label, url, running: d.runner.isRunning(checkId, scopeId), rows }), 200, true);
   });
 
   // ---- run detail ----
@@ -261,7 +268,18 @@ export async function buildApp(d: AppDeps): Promise<FastifyInstance> {
     }
     const verify = (req.query as Record<string, string>)["verify"] === "1" ? await verifyRun(found.dir) : null;
     const results = await listResults(found.dir, params);
-    return send(req, reply, found.manifest.scope.label, (csrf) => runBody({ csrf, manifest: found.manifest, results, verify }));
+    const owner = d.registry.check(params.checkId);
+    const widgets = owner ? d.registry.dashboard(owner.plugin.manifest.id).run : [];
+    const newest = results.filter((r) => r.ok).at(-1);
+    const pluginBlock = newest?.ok ? newest.frontMatter.plugin : undefined;
+    const stats: { title: string | undefined; metrics: ReturnType<typeof evalMetrics> }[] = [];
+    const tables: Awaited<ReturnType<typeof buildTables>> = [];
+    for (const w of widgets) {
+      if (w.type === "stats") {
+        if (pluginBlock) stats.push({ title: w.title, metrics: evalMetrics(w.metrics, pluginBlock) });
+      } else tables.push(...(await buildTables(w, found.dir, found.manifest)));
+    }
+    return send(req, reply, found.manifest.scope.label, (csrf) => runBody({ csrf, manifest: found.manifest, results, verify, stats, tables }), 200, true);
   });
 
   // Only files listed in the manifest can be downloaded: no arbitrary path access.

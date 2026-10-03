@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DashboardInput } from "./dashboard.js";
 
 /** Ids that become folder names: lowercase, digits, dot, dash, underscore. No slashes. */
 export const SEGMENT = /^[a-z0-9][a-z0-9._-]{0,99}$/;
@@ -15,6 +16,8 @@ export const CheckConfigSchema = z.object({
   enabled: z.boolean().default(false),
   /** Cron expression. Scheduling is not wired up yet; stored for when it is. */
   schedule: z.string().nullable().default(null),
+  /** A scope whose latest run is older than this many days is shown as overdue. */
+  staleAfterDays: z.number().int().min(1).max(365).default(7),
   scopes: z.array(ScopeSchema).default([]),
 });
 export type CheckConfig = z.infer<typeof CheckConfigSchema>;
@@ -46,6 +49,8 @@ export interface PluginManifest {
   /** JSON Schema for `settings`. Used to validate input now and render forms later. */
   settingsSchema: Record<string, unknown>;
   checks: CheckDefinition[];
+  /** How this plugin's reviews are drawn on the dashboard. Optional; the generic view applies when absent. */
+  dashboard?: DashboardInput;
 }
 
 export interface CollectContext {

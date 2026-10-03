@@ -92,6 +92,35 @@ One check, "Tracking technology vs consent choice", with the three journeys insi
 - `pre-interaction` runs the EDPS Website Evidence Collector as a separate, pinned process (`execFile`, never a shell). Its scratch Chrome profile (`browser-profile/`, tens of MB of volatile files) is deleted after each journey because it is not evidence and would make hashes unstable.
 - `reject` and `accept` need a per-site banner recipe (selectors for the buttons) and are **not implemented**. Runs record them as `not-implemented` rather than pretending.
 
+## Dashboard
+
+The front page is a triage view for the DPO team. It shows a strip of counts (need attention, failed runs, awaiting review, overdue, total scopes), then one grid of scope tiles per check, worst first. A tile opens the latest run; its History link opens the scope's run history.
+
+A scope's state comes only from the newest run and the newest valid result file in that run:
+
+| State | When |
+| --- | --- |
+| Run failed | latest run did not complete |
+| Issues proposed (severity) | newest result says `issues-proposed`; severity is the highest item |
+| Inconclusive | newest result says `inconclusive` |
+| Awaiting review | run completed but no valid result file exists yet. Never shown as clean. |
+| No issues | newest result says `no-issues` |
+| Never run / Running | no run yet / a run is in progress |
+
+A scope is also marked overdue when its latest run is older than the check's `staleAfterDays` (default 7, set per check in the plugin config).
+
+### How a plugin describes its layout
+
+Plugins declare a `dashboard` block in their manifest. It is data, not markup, and is validated at startup, so a bad declaration stops the server rather than breaking a page. Core draws a fixed set of widgets:
+
+- `tile`: up to four metrics shown on the scope tile.
+- `history`: up to four metrics shown per run on the scope history page.
+- `run`: ordered sections on the run page. `stats` shows metrics; `table` shows rows from an evidence file.
+
+A metric reads a dot path from the `plugin` block of the newest result file (for example `journeys.pre-interaction.classified.marketing`), with optional `suffix` and `warnAbove`. A table names an evidence file (a leading `*/` repeats it for each journey folder), an optional `rows` path, `fromObject` for object-shaped files, columns as dot paths, `sortBy` and `limit`. Only files listed in the run's manifest are read.
+
+A plugin that declares nothing still works: the generic view shows outcome, findings and evidence files.
+
 ## Configuration
 
 Edited in the dashboard (JSON editor for now), validated against the plugin's schema, stored under `data/config/`. Each save creates a new revision and keeps the old one. Runs record the revision they used, so old evidence stays interpretable after settings change. Secrets (proxy credentials, API keys) do not go in config files; use environment variables or a future encrypted store.

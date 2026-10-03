@@ -14,7 +14,7 @@ items:                                  # use `items: []` when there is nothing 
     evidence:                           # relative to the run's evidence/ folder; must exist
       - pre-interaction/cookies.yml
     detail: Facts first. What was seen, where, set by whom, lifespan, which journey.
-plugin:                                 # optional; the cookies plugin uses this shape
+plugin:                                 # optional; the dashboard tiles and run summary read these numbers, so fill them in
   journeys:
     pre-interaction:
       state: analysed                   # analysed | not-implemented | failed | absent

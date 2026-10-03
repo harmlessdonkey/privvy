@@ -1,6 +1,8 @@
 import type { VerifyReport } from "../core/evidence.js";
 import type { ParsedResult } from "../core/results.js";
 import type { Manifest } from "../core/types.js";
+import type { MetricValue, ScopeState, TableData } from "../core/dashboard.js";
+import { stateLabel } from "../core/dashboard.js";
 import { esc, html, Raw } from "./views.js";
 
 const tag = (outcome: string) =>
@@ -15,33 +17,62 @@ ${o.setupNeeded ? html`<div class="card bad">No users exist yet. Set <code>PRIVV
 <button class="primary">Sign in</button></form></div>`;
 }
 
-export interface ScopeView {
+export interface TileView {
   checkId: string;
   scopeId: string;
   label: string;
   running: boolean;
-  lastRun: { runId: string; status: string; finishedAt: string } | null;
-  lastResult: { outcome: string; summary: string; author: string; items: number } | null;
+  state: ScopeState;
+  lastRun: { runId: string; finishedAt: string } | null;
+  metrics: MetricValue[];
+  summary: string | null;
 }
-export interface CheckView { id: string; name: string; description: string; enabled: boolean; scopes: ScopeView[] }
+export interface CheckView { id: string; name: string; description: string; enabled: boolean; staleAfterDays: number; tiles: TileView[] }
 export interface PluginView { id: string; name: string; description: string; enabled: boolean; revision: number; checks: CheckView[] }
 
+const stateClass = (s: ScopeState) => (s.kind === "issues" ? `k-issues-${s.severity ?? "info"}` : `k-${s.kind}`);
+const statePill = (s: ScopeState) =>
+  s.kind === "failed" || (s.kind === "issues" && (s.severity === "high"))
+    ? "bad"
+    : s.kind === "issues" && s.severity === "medium"
+      ? "warn"
+      : s.kind === "no-issues"
+        ? "ok"
+        : s.kind === "awaiting-review"
+          ? "info"
+          : "";
+
+function ago(iso: string, now = Date.now()): string {
+  const mins = Math.max(0, Math.round((now - Date.parse(iso)) / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 48 * 60) return `${Math.round(mins / 60)} h ago`;
+  return `${Math.round(mins / 1440)} days ago`;
+}
+
 export function overviewBody(o: { csrf: string; plugins: PluginView[] }): Raw {
+  const tiles = o.plugins.flatMap((p) => p.checks.flatMap((c) => c.tiles));
+  const count = (f: (t: TileView) => boolean) => tiles.filter(f).length;
+  const attention = count((t) => t.state.kind === "issues" && (t.state.severity === "high" || t.state.severity === "medium"));
+  const failed = count((t) => t.state.kind === "failed");
+  const awaiting = count((t) => t.state.kind === "awaiting-review");
+  const overdue = count((t) => t.state.overdue);
+  const stat = (n: number, label: string, hot: boolean) => html`<div class="stat ${hot && n > 0 ? "hot" : ""}"><b>${String(n)}</b><span>${label}</span></div>`;
   return html`<h1>Overview</h1>
+<div class="strip">${stat(attention, "need attention (high or medium)", true)}${stat(failed, "failed runs", true)}${stat(awaiting, "awaiting review", false)}${stat(overdue, "overdue", true)}${stat(tiles.length, "scopes in total", false)}</div>
 ${o.plugins.map(
-  (p) => html`<h2>${p.name} <span class="muted">${p.enabled ? "enabled" : "disabled"}</span> · <a href="/plugins/${p.id}">Configure</a></h2>
-<p class="muted">${p.description}</p>
+  (p) => html`<h2>${p.name} <span class="muted">${p.enabled ? "" : "disabled"}</span> <a href="/plugins/${p.id}" class="muted" style="font-size:13px;font-weight:400">Configure</a></h2>
 ${p.checks.map(
-  (c) => html`<div class="card"><strong>${c.name}</strong> <span class="muted">${c.enabled ? "" : "(disabled)"}</span><br><span class="muted">${c.description}</span>
-${c.scopes.length === 0
+  (c) => html`<div><strong>${c.name}</strong> <span class="muted">${c.enabled ? "" : "(disabled) "}· overdue after ${String(c.staleAfterDays)} days</span><br><span class="muted">${c.description}</span></div>
+${c.tiles.length === 0
   ? html`<p class="muted">No scopes configured. Add them under Configure.</p>`
-  : html`<table><thead><tr><th>Scope</th><th>Last run</th><th>Latest result</th><th></th></tr></thead><tbody>
-${c.scopes.map(
-  (s) => html`<tr><td><a href="/scopes/${s.checkId}/${s.scopeId}">${s.label}</a><br><code class="muted">${s.scopeId}</code></td>
-<td>${s.running ? html`<span class="muted">running…</span>` : s.lastRun ? html`<a href="/runs/${s.checkId}/${s.scopeId}/${s.lastRun.runId}">${s.lastRun.finishedAt.slice(0, 16).replace("T", " ")} UTC</a><br><span class="${s.lastRun.status === "complete" ? "ok" : "bad"}">${s.lastRun.status}</span>` : html`<span class="muted">never</span>`}</td>
-<td>${s.lastResult ? html`<span class="${tag(s.lastResult.outcome)}">${s.lastResult.outcome}</span> <span class="muted">(${s.lastResult.items} items, ${s.lastResult.author})</span><br>${s.lastResult.summary}` : html`<span class="muted">none yet</span>`}</td>
-<td><form method="post" action="/checks/${s.checkId}/run" class="inline"><input type="hidden" name="_csrf" value="${o.csrf}"><input type="hidden" name="scope" value="${s.scopeId}"><button ${s.running ? "disabled" : ""}>Run now</button></form></td></tr>`,
-)}</tbody></table>`}</div>`,
+  : html`<div class="grid">${c.tiles.map(
+      (t) => html`<div class="tile ${stateClass(t.state)}">
+<div><a class="stretch" href="${t.lastRun ? `/runs/${t.checkId}/${t.scopeId}/${t.lastRun.runId}` : `/scopes/${t.checkId}/${t.scopeId}`}">${t.label}</a></div>
+<div><span class="pill ${statePill(t.state)}">${stateLabel(t.state)}</span>${t.state.overdue ? html` <span class="pill bad">overdue</span>` : html``}</div>
+${t.metrics.length ? html`<div class="metrics">${t.metrics.map((m) => html`<span class="l">${m.label}</span><span class="${m.warn ? "w" : ""}">${m.value}</span>`)}</div>` : html``}
+${t.summary ? html`<div class="sum">${t.summary}</div>` : html``}
+<div class="foot"><span class="muted">${t.running ? "running…" : t.lastRun ? ago(t.lastRun.finishedAt) : "never run"}</span><span><a href="/scopes/${t.checkId}/${t.scopeId}">History</a> <form method="post" action="/checks/${t.checkId}/run" class="inline"><input type="hidden" name="_csrf" value="${o.csrf}"><input type="hidden" name="scope" value="${t.scopeId}"><button ${t.running ? "disabled" : ""}>Run</button></form></span></div></div>`,
+    )}</div>`}`,
 )}`,
 )}
 ${o.plugins.length === 0 ? html`<p class="muted">No plugins registered.</p>` : html``}`;
@@ -57,6 +88,7 @@ export interface HistoryRow {
   /** Newest valid result for the run, if any. */
   result: { outcome: string; author: string; items: number; top: string | null; summary: string } | null;
   resultFiles: number;
+  metrics: MetricValue[];
 }
 
 export function scopeBody(o: {
@@ -72,12 +104,12 @@ export function scopeBody(o: {
 <p class="muted"><code>${o.checkId}</code> · <code>${o.scopeId}</code>${o.url ? html` · ${o.url}` : html``}</p>
 <form method="post" action="/checks/${o.checkId}/run" class="inline"><input type="hidden" name="_csrf" value="${o.csrf}"><input type="hidden" name="scope" value="${o.scopeId}"><button ${o.running ? "disabled" : ""}>Run now</button></form>
 <h2>History <span class="muted">${String(o.rows.length)} runs, newest first</span></h2>
-${o.rows.length === 0 ? html`<p class="muted">No runs yet for this scope.</p>` : html`<table><thead><tr><th>Run (UTC)</th><th>Status</th><th>Latest result</th><th>Evidence</th></tr></thead><tbody>
+${o.rows.length === 0 ? html`<p class="muted">No runs yet for this scope.</p>` : html`<table><thead><tr><th>Run (UTC)</th><th>Status</th><th>Latest result</th><th>Plugin metrics</th></tr></thead><tbody>
 ${o.rows.map(
   (r) => html`<tr><td><a href="/runs/${o.checkId}/${o.scopeId}/${r.runId}">${r.startedAt.slice(0, 16).replace("T", " ")}</a><br><code class="muted">${r.runId}</code></td>
 <td><span class="${r.status === "complete" ? "ok" : r.status === "unfinished" ? "muted" : "bad"}">${r.status}</span>${r.durationSec === null ? html`` : html`<br><span class="muted">${String(r.durationSec)}s · config rev ${String(r.configRevision ?? "?")}</span>`}</td>
 <td>${r.result ? html`<span class="${tag(r.result.outcome)}">${r.result.outcome}</span> <span class="muted">(${String(r.result.items)} items${r.result.top ? `, top ${r.result.top}` : ""}, ${r.result.author}${r.resultFiles > 1 ? `, ${r.resultFiles} result files` : ""})</span><br>${r.result.summary}` : html`<span class="muted">${r.resultFiles ? "result file invalid" : "no result yet"}</span>`}</td>
-<td>${String(r.files)} files</td></tr>`,
+<td>${r.metrics.length ? html`<div class="metrics">${r.metrics.map((m) => html`<span class="l">${m.label}</span><span class="${m.warn ? "w" : ""}">${m.value}</span>`)}</div>` : html`<span class="muted">${String(r.files)} files</span>`}</td></tr>`,
 )}</tbody></table>`}`;
 }
 
@@ -105,6 +137,8 @@ export function runBody(o: {
   manifest: Manifest;
   results: ParsedResult[];
   verify: VerifyReport | null;
+  stats: { title: string | undefined; metrics: MetricValue[] }[];
+  tables: TableData[];
 }): Raw {
   const m = o.manifest;
   const base = `/runs/${m.checkId}/${m.scopeId}/${m.runId}`;
@@ -127,6 +161,10 @@ ${r.frontMatter.items.length ? html`<table><thead><tr><th>Severity</th><th>Item<
 ${r.body.trim() ? html`<details><summary>Full write-up</summary><pre>${r.body}</pre></details>` : html``}</div>`
     : html`<div class="card"><strong class="bad">Invalid result file</strong> <code>${r.file}</code><br><span class="muted">${r.error}</span></div>`,
 )}
+
+${o.stats.map((w) => html`<h2>${w.title ?? "Summary"}</h2><div class="strip">${w.metrics.map((m) => html`<div class="stat ${m.warn ? "hot" : ""}"><b>${m.value}</b><span>${m.label}</span></div>`)}</div>`)}
+${o.tables.map((t) => html`<h2>${t.title}${t.group ? html` <span class="muted">${t.group}</span>` : html``} <span class="muted">${String(t.total)} rows${t.rows.length < t.total ? `, showing ${t.rows.length}` : ""}</span></h2>
+${t.note ? html`<p class="muted">${t.note}</p>` : html`<div class="scroll"><table><thead><tr>${t.columns.map((c) => html`<th>${c}</th>`)}</tr></thead><tbody>${t.rows.map((r) => html`<tr>${r.map((v) => html`<td class="wrap">${v}</td>`)}</tr>`)}</tbody></table></div>`}`)}
 
 <h2>Evidence</h2>
 <p>${o.verify ? (o.verify.ok ? html`<span class="ok">Integrity verified: every file matches its recorded hash.</span>` : html`<span class="bad">Integrity problems:</span><ul>${o.verify.problems.map((p) => html`<li>${p}</li>`)}</ul>`) : html`<a href="${base}?verify=1">Verify integrity</a>`}</p>

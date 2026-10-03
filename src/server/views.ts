@@ -35,6 +35,21 @@ button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 input,textarea{font:inherit;width:100%;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 textarea{font-family:ui-monospace,Menlo,monospace;font-size:13px;min-height:360px}pre{white-space:pre-wrap;word-break:break-word;margin:0}
 form.inline{display:inline}.flash{background:var(--card);border-left:3px solid var(--accent);padding:8px 12px;margin-bottom:16px}
+main.wide{max-width:1200px}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 8px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}.stat b{display:block;font-size:24px;line-height:1.2}.stat span{color:var(--muted);font-size:13px}
+.stat.hot b{color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px;margin:8px 0 20px}
+.tile{position:relative;background:var(--card);border:1px solid var(--line);border-left-width:4px;border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.tile:hover{border-color:var(--accent)}.tile a.stretch{color:var(--fg);text-decoration:none;font-weight:600}.tile a.stretch::after{content:"";position:absolute;inset:0}
+.tile .foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;font-size:13px}.tile .foot a,.tile .foot form{position:relative;z-index:1}
+.tile .sum{font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.k-failed,.k-issues-high{border-left-color:var(--bad)}.k-issues-medium{border-left-color:#d9822b}.k-issues-low,.k-issues-info,.k-inconclusive{border-left-color:#c9a227}
+.k-awaiting-review{border-left-color:var(--accent)}.k-no-issues{border-left-color:var(--ok)}.k-never,.k-running{border-left-color:var(--line)}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.pill.bad{border-color:var(--bad)}.pill.ok{border-color:var(--ok)}.pill.warn{border-color:#d9822b;color:#d9822b}.pill.info{border-color:var(--accent);color:var(--accent)}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:13px}.metrics .l{color:var(--muted)}.metrics .w{color:var(--bad);font-weight:600}
+.scroll{overflow-x:auto}td.wrap{word-break:break-all;max-width:420px}
 code{font-family:ui-monospace,Menlo,monospace;font-size:13px}.narrow{max-width:360px;margin:12vh auto}
 `;
 
@@ -44,6 +59,7 @@ export interface Layout {
   csrf: string;
   flash?: string | undefined;
   body: Raw;
+  wide?: boolean;
 }
 
 export function page(l: Layout): string {
@@ -52,5 +68,5 @@ export function page(l: Layout): string {
     : html``;
   return html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${l.title} · privvy</title><style>${new Raw(CSS)}</style></head><body>
-<header><a href="/">privvy</a>${nav}</header><main>${l.flash ? html`<div class="flash">${l.flash}</div>` : html``}${l.body}</main></body></html>`.value;
+<header><a href="/">privvy</a>${nav}</header><main class="${l.wide ? "wide" : ""}">${l.flash ? html`<div class="flash">${l.flash}</div>` : html``}${l.body}</main></body></html>`.value;
 }

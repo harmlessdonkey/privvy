@@ -47,6 +47,71 @@ export const trackingVsConsent: Plugin = {
         timeoutSeconds: { type: "integer", minimum: 30, maximum: 3600 },
       },
     },
+    dashboard: {
+      tile: [
+        { label: "Marketing before choice", path: "journeys.pre-interaction.classified.marketing", warnAbove: 0 },
+        { label: "Analytics before choice", path: "journeys.pre-interaction.classified.analytics", warnAbove: 0 },
+        { label: "Third-party hosts", path: "journeys.pre-interaction.third_party_hosts" },
+        { label: "Consent mode", path: "consent_mode_signals" },
+      ],
+      history: [
+        { label: "Marketing", path: "journeys.pre-interaction.classified.marketing", warnAbove: 0 },
+        { label: "Analytics", path: "journeys.pre-interaction.classified.analytics", warnAbove: 0 },
+        { label: "Cookies", path: "journeys.pre-interaction.cookies_total" },
+      ],
+      run: [
+        {
+          type: "stats",
+          title: "Review summary",
+          metrics: [
+            { label: "Cookies", path: "journeys.pre-interaction.cookies_total" },
+            { label: "Storage entries", path: "journeys.pre-interaction.storage_entries_total" },
+            { label: "Third-party hosts", path: "journeys.pre-interaction.third_party_hosts" },
+            { label: "Marketing", path: "journeys.pre-interaction.classified.marketing", warnAbove: 0 },
+            { label: "Analytics", path: "journeys.pre-interaction.classified.analytics", warnAbove: 0 },
+            { label: "Consent platform", path: "consent_platform.vendor" },
+            { label: "Consent mode", path: "consent_mode_signals" },
+          ],
+        },
+        {
+          type: "table",
+          title: "Cookies",
+          file: "*/cookies.yml",
+          sortBy: "-Days",
+          columns: [
+            { label: "Name", field: "name" },
+            { label: "Domain", field: "domain" },
+            { label: "Days", field: "expiresDays" },
+            { label: "First party", field: "firstPartyStorage" },
+            { label: "Secure", field: "secure" },
+            { label: "HttpOnly", field: "httpOnly" },
+            { label: "SameSite", field: "sameSite" },
+          ],
+        },
+        {
+          type: "table",
+          title: "Local storage",
+          file: "*/local-storage.yml",
+          fromObject: "nested",
+          columns: [
+            { label: "Origin", field: "_group" },
+            { label: "Key", field: "_key" },
+            { label: "First party", field: "firstPartyStorage" },
+          ],
+        },
+        {
+          type: "table",
+          title: "Tracker requests matched by filter lists",
+          file: "*/beacons.yml",
+          sortBy: "-Seen",
+          columns: [
+            { label: "URL", field: "url" },
+            { label: "List", field: "listName" },
+            { label: "Seen", field: "occurrences" },
+          ],
+        },
+      ],
+    },
     checks: [
       {
         id: "tracking-vs-consent",
@@ -69,6 +134,7 @@ export const trackingVsConsent: Plugin = {
       "tracking-vs-consent": {
         enabled: false,
         schedule: null,
+        staleAfterDays: 7,
         scopes: [{ id: "example.com--uk", label: "example.com (UK)", params: { url: "https://example.com", market: "uk" } }],
       },
     },

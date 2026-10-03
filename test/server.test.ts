@@ -133,6 +133,11 @@ test("configure a plugin in the dashboard, run it, view the run, download eviden
   const run = (await listRuns(data))[0]!;
   assert.equal(run.manifest?.status, "complete");
 
+  // a finished scan with no analysis yet is awaiting review, never shown as clean
+  const pending = await b.req("GET", "/");
+  assert.match(pending.body, /Awaiting review/);
+  assert.doesNotMatch(pending.body, /No issues/);
+
   // an analyst (agent or person) drops a result file next to the evidence
   await mkdir(join(run.dir, "results"), { recursive: true });
   await writeFile(join(run.dir, "results", "20261003T091500Z-agent.md"), `---
@@ -150,7 +155,8 @@ items:
 body
 `);
   const home2 = await b.req("GET", "/");
-  assert.match(home2.body, /issues-proposed/);
+  assert.match(home2.body, /Issues proposed \(high\)/);
+  assert.match(home2.body, /need attention/);
   assert.match(home2.body, /href="\/scopes\/tracking-vs-consent\/example\.com--uk"/);
 
   const hist = await b.req("GET", "/scopes/tracking-vs-consent/example.com--uk");
