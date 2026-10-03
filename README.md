@@ -47,3 +47,7 @@ Add a plugin: create `src/plugins/<name>/index.ts` exporting a `Plugin`, registe
 - Binds to localhost by default and compose publishes on `127.0.0.1` only.
 - No default password; the first admin comes from an environment variable.
 - Do not commit anything from `data/`. Instance config, targets and evidence stay out of this repo.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE).

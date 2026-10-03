@@ -125,6 +125,5 @@ Docker, one container for now. Compose publishes on `127.0.0.1` only. Chromium c
 
 ## Open questions
 
-- Licence for the public repo (none chosen yet, so all rights reserved by default).
 - Confirm the collector's real CLI arguments with `--help` and update the plugin's default `collectorArgs`.
 - Bot protection on the target sites: allowlist the scanner rather than evade it.

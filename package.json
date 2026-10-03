@@ -2,6 +2,7 @@
   "name": "privvy",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Privacy monitoring tool: plugins collect evidence, a separate layer analyses it, a dashboard controls it all.",
   "type": "module",
   "engines": {
