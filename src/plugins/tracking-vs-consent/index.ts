@@ -27,6 +27,48 @@ type Journey = (typeof JOURNEYS)[number];
  */
 const SCRATCH = ["browser-profile"];
 
+const MAX_PAGES = 20;
+
+/**
+ * Extra collector arguments for visiting more than the landing page, all in the same browser session and
+ * still without touching the consent banner.
+ *  - `params.pages`: pages to visit, as absolute URLs or paths ("/en-gb/casino"). Same site as `params.url` only.
+ *  - `settings.maxExtraPages`: additional pages the collector picks itself from links it finds (default 0).
+ *  - `settings.sleepMs`: pause after each page load, so late scripts have time to fire.
+ *  - `settings.seed`: makes the collector's random picks repeatable. Defaults to the scope id, so runs compare.
+ */
+export function crawlArgs(landing: string, params: Record<string, unknown>, settings: Record<string, unknown>, scopeId: string): { args: string[]; pages: string[] } {
+  const base = new URL(landing);
+  const bare = (h: string) => h.replace(/^www\./, "");
+  const raw = params["pages"] ?? [];
+  if (!Array.isArray(raw) || raw.some((x) => typeof x !== "string")) throw new Error(`Scope "${scopeId}": params.pages must be a list of URLs or paths`);
+  if (raw.length > MAX_PAGES) throw new Error(`Scope "${scopeId}": at most ${MAX_PAGES} pages`);
+  const pages: string[] = [];
+  for (const entry of raw as string[]) {
+    let u: URL;
+    try {
+      u = new URL(entry.trim(), base);
+    } catch {
+      throw new Error(`Scope "${scopeId}": "${entry}" is not a valid URL or path`);
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error(`Scope "${scopeId}": "${entry}" must be http(s)`);
+    if (bare(u.hostname) !== bare(base.hostname)) throw new Error(`Scope "${scopeId}": "${entry}" is not on ${base.hostname}`);
+    u.hash = "";
+    const href = u.href;
+    if (href !== base.href && !pages.includes(href)) pages.push(href);
+  }
+  const extra = Number(settings["maxExtraPages"] ?? 0);
+  if (!Number.isInteger(extra) || extra < 0 || extra > MAX_PAGES) throw new Error(`maxExtraPages must be a whole number from 0 to ${MAX_PAGES}`);
+  const args: string[] = [];
+  for (const p of pages) args.push("--browse-link", p);
+  if (pages.length + extra > 0) {
+    args.push("--max", String(pages.length + extra));
+    if (extra > 0) args.push("--seed", String(settings["seed"] ?? scopeId));
+    if (settings["sleepMs"] !== undefined) args.push("--sleep", String(Number(settings["sleepMs"])));
+  }
+  return { args, pages };
+}
+
 export const trackingVsConsent: Plugin = {
   manifest: {
     id: "cookies",
@@ -45,6 +87,9 @@ export const trackingVsConsent: Plugin = {
         },
         journeys: { type: "array", items: { enum: [...JOURNEYS] }, minItems: 1, uniqueItems: true },
         timeoutSeconds: { type: "integer", minimum: 30, maximum: 3600 },
+        maxExtraPages: { type: "integer", minimum: 0, maximum: 20, description: "Extra pages the collector picks from links it finds, on top of scope pages" },
+        sleepMs: { type: "integer", minimum: 0, maximum: 30000, description: "Pause after each page load" },
+        seed: { type: "string", description: "Makes random page picks repeatable. Default: the scope id" },
       },
     },
     dashboard: {
@@ -58,6 +103,7 @@ export const trackingVsConsent: Plugin = {
         { label: "Marketing", path: "journeys.pre-interaction.classified.marketing", warnAbove: 0 },
         { label: "Analytics", path: "journeys.pre-interaction.classified.analytics", warnAbove: 0 },
         { label: "Cookies", path: "journeys.pre-interaction.cookies_total" },
+        { label: "Pages", path: "journeys.pre-interaction.pages_visited" },
       ],
       run: [
         {
@@ -66,12 +112,20 @@ export const trackingVsConsent: Plugin = {
           metrics: [
             { label: "Cookies", path: "journeys.pre-interaction.cookies_total" },
             { label: "Storage entries", path: "journeys.pre-interaction.storage_entries_total" },
+            { label: "Pages visited", path: "journeys.pre-interaction.pages_visited" },
             { label: "Third-party hosts", path: "journeys.pre-interaction.third_party_hosts" },
             { label: "Marketing", path: "journeys.pre-interaction.classified.marketing", warnAbove: 0 },
             { label: "Analytics", path: "journeys.pre-interaction.classified.analytics", warnAbove: 0 },
             { label: "Consent platform", path: "consent_platform.vendor" },
             { label: "Consent mode", path: "consent_mode_signals" },
           ],
+        },
+        {
+          type: "table",
+          title: "Pages visited",
+          file: "*/inspection.json",
+          rows: "browsing_history",
+          columns: [{ label: "URL", field: "_value" }],
         },
         {
           type: "table",
@@ -149,6 +203,8 @@ export const trackingVsConsent: Plugin = {
     const journeys = (ctx.settings["journeys"] as Journey[] | undefined) ?? ["pre-interaction"];
     const timeoutMs = Number(ctx.settings["timeoutSeconds"] ?? 600) * 1000;
 
+    const crawl = crawlArgs(url, ctx.scope.params, ctx.settings, ctx.scope.id);
+
     const status: Record<string, string> = {};
     for (const journey of journeys) {
       if (journey !== "pre-interaction") {
@@ -162,7 +218,7 @@ export const trackingVsConsent: Plugin = {
       }
 
       const outDir = join(ctx.evidenceDir, journey);
-      const args = argTemplate.map((a) => a.replaceAll("{url}", url).replaceAll("{outDir}", outDir));
+      const args = [...argTemplate.map((a) => a.replaceAll("{url}", url).replaceAll("{outDir}", outDir)), ...crawl.args];
       ctx.log(`journey ${journey}: ${command} ${args.join(" ")}`);
       await mkdir(ctx.evidenceDir, { recursive: true });
 
@@ -182,6 +238,6 @@ export const trackingVsConsent: Plugin = {
         throw new Error(`collector failed for journey ${journey}: ${err.message.split("\n")[0]}`);
       }
     }
-    return { notes: { journeys: status, removedScratch: SCRATCH, command, args: argTemplate, market: ctx.scope.params["market"] ?? null } };
+    return { notes: { journeys: status, removedScratch: SCRATCH, command, args: argTemplate, crawl: { pages: crawl.pages, extraArgs: crawl.args }, market: ctx.scope.params["market"] ?? null } };
   },
 };

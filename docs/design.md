@@ -87,6 +87,9 @@ The collect contract is deliberately plain (settings and scope in, files out) so
 
 ### Cookies plugin
 
+Visiting more than the landing page: list pages in the scope's `params.pages` (absolute URLs or paths on the same site, up to 20). They are passed to the collector as `--browse-link`, so they are visited in one browser session, in order, without touching the banner. `settings.maxExtraPages` lets the collector pick extra pages from links it finds (repeatable, because the seed defaults to the scope id), and `settings.sleepMs` sets the pause after each page. The pages actually visited are in `inspection.json` as `browsing_history`; links the collector refused (for example pages that return 404 to its pre-check) are in `skipped_links`.
+
+
 One check, "Tracking technology vs consent choice", with the three journeys inside it, because the important findings ("reject was clicked but a tracker still fired") only appear when journeys are compared. Split a check when its evidence, schedule or owner differs.
 
 - `pre-interaction` runs the EDPS Website Evidence Collector as a separate, pinned process (`execFile`, never a shell). Its scratch Chrome profile (`browser-profile/`, tens of MB of volatile files) is deleted after each journey because it is not evidence and would make hashes unstable.

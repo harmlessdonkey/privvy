@@ -41,6 +41,7 @@ plugin:
       state: analysed
       cookies_total: 7
       storage_entries_total: 3
+      pages_visited: 3
       third_party_hosts: 9
       classified:
         necessary: 4

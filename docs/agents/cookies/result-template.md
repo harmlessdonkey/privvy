@@ -20,6 +20,7 @@ plugin:                                 # optional; the dashboard tiles and run 
       state: analysed                   # analysed | not-implemented | failed | absent
       cookies_total: 0
       storage_entries_total: 0
+      pages_visited: 1                  # number of entries in browsing_history
       third_party_hosts: 0
       classified:                       # counts of cookies and storage entries by category
         necessary: 0

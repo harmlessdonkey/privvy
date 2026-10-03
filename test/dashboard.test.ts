@@ -64,6 +64,7 @@ test("table widgets: per-journey tables, object rows, sorting, and unlisted file
   await mkdir(join(evidenceDir, "pre-interaction"), { recursive: true });
   await writeFile(join(evidenceDir, "pre-interaction", "cookies.yml"), "- {name: a, domain: x.com, expiresDays: 10}\n- {name: b, domain: y.com, expiresDays: 400}\n");
   await writeFile(join(evidenceDir, "pre-interaction", "local-storage.yml"), "https://x.com:\n  k1: {firstPartyStorage: true}\n  k2: {firstPartyStorage: false}\n");
+  await writeFile(join(evidenceDir, "pre-interaction", "inspection.json"), JSON.stringify({ browsing_history: ["https://x.com/", "https://x.com/a"] }));
   const scope = { id: "s1", label: "S", params: {} };
   const manifest = await sealRun(dir, {
     schemaVersion: 1, checkId: "c1", checkVersion: 1, scopeId: "s1", scope, pluginId: "p", pluginVersion: "1", runId: "20261003T073612Z-abcdef",
@@ -84,6 +85,9 @@ test("table widgets: per-journey tables, object rows, sorting, and unlisted file
     dir, manifest,
   );
   assert.deepEqual(storage[0]!.rows, [["https://x.com", "k1"], ["https://x.com", "k2"]]);
+
+  const pages = await buildTables({ type: "table", title: "Pages", file: "*/inspection.json", rows: "browsing_history", limit: 200, columns: [{ label: "URL", field: "_value" }] }, dir, manifest);
+  assert.deepEqual(pages[0]!.rows, [["https://x.com/"], ["https://x.com/a"]]);
 
   const none = await buildTables({ type: "table", title: "T", file: "../secret.yml", limit: 10, columns: [{ label: "Name", field: "name" }] }, dir, manifest);
   assert.deepEqual(none, []);

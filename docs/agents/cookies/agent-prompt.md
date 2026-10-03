@@ -22,17 +22,18 @@ It contains `manifest.json`, `evidence/` and `results/`.
 2. **Check integrity (preferred).** Recompute the SHA-256 of the files you rely on and compare with `manifest.files`. Any mismatch means the outcome is `inconclusive`; say which file.
 3. **Sanity-check the collection.** Look at `<journey>/screenshot-top.png` and the start of `<journey>/source.html`. If it is a block page, captcha, error page or an empty page, the outcome is `inconclusive`. Also note whether a consent banner is visible.
 4. **Find the journeys.** Each folder under `evidence/` is a journey (`pre-interaction`, `reject`, `accept`). A file named `<journey>.skipped.json` means that journey was not collected. Analyse only journeys that were collected, and record the state of every journey in the `plugin` block.
-5. **Read the evidence for each collected journey** (see the file guide below).
-6. **Classify** each cookie, storage entry and third-party request (see classification).
-7. **Compare journeys** when more than one was collected (see comparisons).
-8. **Write the result file** exactly as in `result-template.md`.
+5. **Check which pages were visited.** A scope may ask for more than the landing page (`scope.params.pages` and `notes.crawl.pages` in the manifest). Compare that list with `browsing_history` in `inspection.json`. All pages are visited in one browser session without touching the banner, so cookies, storage and requests are combined across pages. The `logs[].location` of each cookie and storage entry says which page set it. Say in your write-up if a requested page was not visited. Put the number of pages visited in `pages_visited`. When a finding depends on the page, name the page in `detail`.
+6. **Read the evidence for each collected journey** (see the file guide below).
+7. **Classify** each cookie, storage entry and third-party request (see classification).
+8. **Compare journeys** when more than one was collected (see comparisons).
+9. **Write the result file** exactly as in `result-template.md`.
 
 ## File guide (collector output)
 
 - `cookies.yml`: list of cookies. Useful fields: `name`, `domain`, `expiresDays`, `session`, `httpOnly`, `secure`, `sameSite`, `firstPartyStorage`, and `logs[].stack[].source`, which says whether it was set by a `Set-Cookie` header or by a script.
 - `local-storage.yml`: origin, then key, then `value` and `firstPartyStorage` and `logs`. Treat local storage like cookies: identifiers stored here need the same scrutiny.
 - `beacons.yml`: requests that matched a tracker filter list. Fields: `filter`, `listName` (for example easyprivacy, fanboy-annoyance), `url`, `query`, `occurrences`.
-- `inspection.json`: everything in one file, plus `hosts` (cookies, beacons, requests, localStorage per host), `links.thirdParty` and `secure_connection`.
+- `inspection.json`: everything in one file, including `browsing_history` (the pages actually visited, in order) and `skipped_links` (links the collector declined to open and why), plus `hosts` (cookies, beacons, requests, localStorage per host), `links.thirdParty` and `secure_connection`.
 - `requests.har`: every request, with query strings and headers.
 - Filter lists are heuristics. A match does not prove tracking, and no match does not prove there is none. For example, a consent platform's own geolocation call can match an "annoyance" list and is normally necessary.
 

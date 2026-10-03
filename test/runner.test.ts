@@ -78,3 +78,36 @@ test("the collector's scratch Chrome profile is removed and never becomes eviden
   assert.ok(!m.files.some((f) => f.path.includes("browser-profile")));
   assert.deepEqual(m.notes?.["removedScratch"], ["browser-profile"]);
 });
+
+test("crawl arguments: scope pages become --browse-link, off-site and bad pages are refused", async () => {
+  const { crawlArgs } = await import("../src/plugins/tracking-vs-consent/index.js");
+  const landing = "https://www.example.com";
+  const r = crawlArgs(landing, { pages: ["/casino", "https://example.com/sports#top", "/casino", "https://www.example.com/"] }, { maxExtraPages: 1, sleepMs: 2000 }, "ex");
+  assert.deepEqual(r.pages, ["https://www.example.com/casino", "https://example.com/sports"]);
+  assert.deepEqual(r.args, ["--browse-link", "https://www.example.com/casino", "--browse-link", "https://example.com/sports", "--max", "3", "--seed", "ex", "--sleep", "2000"]);
+  assert.deepEqual(crawlArgs(landing, {}, {}, "ex").args, []);
+  assert.throws(() => crawlArgs(landing, { pages: ["https://evil.example.net/x"] }, {}, "ex"), /is not on/);
+  assert.throws(() => crawlArgs(landing, { pages: ["javascript:alert(1)"] }, {}, "ex"), /must be http/);
+  assert.throws(() => crawlArgs(landing, { pages: "/a" }, {}, "ex"), /list of URLs/);
+  assert.throws(() => crawlArgs(landing, { pages: Array.from({ length: 21 }, (_, i) => `/p${i}`) }, {}, "ex"), /at most 20/);
+  assert.throws(() => crawlArgs(landing, {}, { maxExtraPages: 99 }, "ex"), /maxExtraPages/);
+});
+
+test("a run passes the crawl arguments to the collector and records them", async () => {
+  const data = await tmpData();
+  const script = await fakeCollector(data);
+  const configs = new ConfigStore(data);
+  const registry = new Registry([trackingVsConsent]);
+  await configs.save(trackingVsConsent, {
+    enabled: true,
+    settings: { collectorCommand: process.execPath, collectorArgs: [script, "{url}", "{outDir}"], journeys: ["pre-interaction"] },
+    checks: { "tracking-vs-consent": { enabled: true, scopes: [{ id: "ex", label: "Ex", params: { url: "https://example.com", pages: ["/casino"] } }] } },
+  });
+  const runner = new Runner(data, registry, configs);
+  await runner.execute(await runner.plan("tracking-vs-consent", "ex"));
+  const r = (await listRuns(data))[0]!;
+  assert.equal(r.manifest?.status, "complete");
+  const insp = JSON.parse(await readFile(join(r.dir, "evidence", "pre-interaction", "inspection.json"), "utf8"));
+  assert.deepEqual(insp.extra, ["--browse-link", "https://example.com/casino", "--max", "1"]);
+  assert.deepEqual((r.manifest!.notes as { crawl: { pages: string[] } }).crawl.pages, ["https://example.com/casino"]);
+});

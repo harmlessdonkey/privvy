@@ -12,11 +12,11 @@ export async function fakeCollector(dir: string, opts: { fail?: boolean; profile
   await writeFile(
     file,
     `import { mkdirSync, writeFileSync } from "node:fs";
-const [url, outDir] = process.argv.slice(2);
+const [url, outDir, ...extra] = process.argv.slice(2);
 ${opts.fail ? 'console.error("boom"); process.exit(2);' : ""}
 mkdirSync(outDir, { recursive: true });
 ${opts.profile ? 'mkdirSync(outDir + "/browser-profile/Default", { recursive: true }); writeFileSync(outDir + "/browser-profile/Default/Cookies", "volatile");' : ""}
-writeFileSync(outDir + "/inspection.json", JSON.stringify({ url, cookies: [{ name: "_ga" }] }));
+writeFileSync(outDir + "/inspection.json", JSON.stringify({ url, cookies: [{ name: "_ga" }], extra }));
 console.log("collected " + url);
 `,
   );

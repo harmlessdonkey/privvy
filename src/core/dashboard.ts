@@ -149,7 +149,10 @@ async function loadEvidenceFile(runDir: string, rel: string): Promise<unknown> {
 }
 
 function toRows(data: unknown, mode: "entries" | "nested" | undefined): Record<string, unknown>[] {
-  if (Array.isArray(data)) return data.filter((r): r is Record<string, unknown> => r !== null && typeof r === "object");
+  if (Array.isArray(data)) {
+    // Lists of plain values (for example a list of URLs) become one-column rows readable as `_value`.
+    return data.flatMap((r): Record<string, unknown>[] => (r !== null && typeof r === "object" ? [r as Record<string, unknown>] : r === undefined || r === null ? [] : [{ _value: r }]));
+  }
   if (data === null || typeof data !== "object" || !mode) return [];
   const out: Record<string, unknown>[] = [];
   for (const [k1, v1] of Object.entries(data as Record<string, unknown>)) {
